@@ -1,0 +1,344 @@
+#!/bin/sh
+
+if [ $# -lt 2 ]; then
+	printf '%s\n' '[ Error ]: es necesario indicar dimensiones, <base> <altura>' 1>&2;
+	exit 1;
+fi;
+
+base="$1";
+shift
+altura="$*";
+error=1;
+
+printf '%s' "${base}" | grep -E '^[0-9]+$' 1>/dev/null 2>/dev/null;
+if [ $? -ne 0 ]; then
+	printf '%s\n' "[ Error ]: formato no valido para la base '${base}'" 1>&2;
+	error=0;
+fi;
+
+printf '%s' "${altura}" | grep -E '^[0-9]+$' 1>/dev/null 2>/dev/null;
+if [ $? -ne 0 ]; then
+	printf '%s\n' "[ Error ]: formato no valido para la altura '${altura}'" 1>&2;
+	error=0;
+elif [ ${altura} -gt 255 ]; then
+	printf '%s\n' "[ Error ]: altura fuera de limites '${altura}'" 1>&2;
+	error=0;
+fi;
+
+[ ${error} -eq 0 ] && exit 1;
+
+# ejemplo de configuracion
+configuracion='
+
+	_#_________#____
+	_##________##___
+	_###__#__#_###_#
+	#############_##
+	_#_#####_#_###_#
+	################
+	####_#########_#
+
+';
+
+# armando configuracion aleatorio
+
+p_min=5;
+p_max=90;
+
+p_min="$( awk -v p="${p_min}" "BEGIN { print int( p * 256 / 100 ) }" )";
+p_max="$( awk -v p="${p_max}" "BEGIN { print int( p * 256 / 100 ) }" )";
+
+p_actual="${p_min}";
+p_salto='1/3';
+
+configuracion='';
+for j in $( seq 1 ${altura} ); do
+	for i in $( seq 1 ${base} ); do
+		configuracion="$( printf '%s%s' "${configuracion}" "$( [ "$( od -An -N1 -tu1 /dev/urandom )" -gt ${p_actual} ] && printf '_' || printf '#' )" )";
+	done;
+	configuracion="$( printf '%s\n	' "${configuracion}" )";
+	p_actual=$(( p_actual + (( p_max - p_actual ) * ${p_salto}) ));
+done;
+
+
+# dimensiones
+l_base=3;
+l_altura=0;
+l_profundidad=1;
+
+# aristas
+l_vertical='|';
+l_horizontal='_';
+l_diagonal='\/';
+
+# superficies
+l_derecha=' ';
+l_superior=' ';
+l_frontal=' ';
+
+# vertices
+v_asi='\/';
+v_asd='\/';
+v_aii='|';
+v_aid='|';
+
+v_psi='_';
+v_psd=' ';
+v_pid='|';
+
+[ ${l_profundidad} -lt 2 ] && v_pid='\/';
+
+l_blanco=' ';
+
+
+esPar() {
+	printf '%s' "$*" \
+	| \
+	command grep '^.*[02468]$' 1>/dev/null 2>/dev/null;
+};
+
+mitad() {
+	esPar "$*" \
+	&& \
+	printf '%s' "$(( $* / 2 ))" \
+	|| \
+	printf '%s' "$(( ( $* - 1 ) / 2 ))";
+};
+
+# $1: cantidad
+# $2-*: texto a repetir
+repetir() {
+
+	local repeticiones="$1";
+	shift;
+	local texto="$*";
+
+	printf "${texto}"'%.0s' $( seq 1 "${repeticiones}" );
+};
+
+# $1: x ... (0 a X)
+# $2: y ... (1 a Y)
+# $3-*: texto
+leer_xy() {
+
+	local x="$1";
+	shift
+	local y="$1";
+	shift
+	local texto="$*";
+
+	printf '%s' "${texto}" \
+	| \
+	sed -n "${y}"'s/^.\{'"${x}"'\}\(.\).*$/\1/p';
+
+	#printf '%s\n' "${y}"'s/^.\{'"${x}"'\}\(.\).*$/\1/p' 1>&2;
+};
+
+# $1: x ... (0 a X)
+# $2: y ... (1 a Y)
+# $3: reemplazo
+# $4-*: texto
+cambio_xy() {
+
+	local x="$1";
+	shift;
+	local y="$1";
+	shift;
+	local reemplazo="$1";
+	shift;
+	local texto="$*";
+
+	printf '%s' "${texto}" \
+	| \
+	sed "${y}"'s/^\(.\{'"${x}"'\}\)\(.\)\(.*\)$/\1'"${reemplazo}"'\3/';
+};
+
+# $*: configuracion
+construir() {
+
+	local configuracion;
+
+	# sin tabs iniciales
+	configuracion="$( printf '%s' "$*" | sed 's/^[	]*//' )";
+
+	# borrando primeras lineas en blanco
+	while [ -n "${configuracion}" ] && [ -z "$( printf '%s' "${configuracion}" | head -n1 )" ]; do
+		configuracion="$( printf '%s' "${configuracion}" | sed '1d' )";
+	done;
+
+	# borrando ultimas lineas en blanco
+	while [ -n "${configuracion}" ] && [ -z "$( printf '%s' "${configuracion}" | tail -n1 )" ]; do
+		configuracion="$( printf '%s' "${configuracion}" | sed '$d' )";
+	done;
+
+	# verificando caracteres
+	if [ -n "$( printf '%s' "${configuracion}" | sed 's/[#_]//g' )" ]; then
+		printf '%s\n' '[ Error ]: caracteres no permitidos' 1>&2;
+		return 1;
+	fi;
+
+	# contando filas
+	local filas;
+	filas="$( printf '%s\n' "${configuracion}" | wc -l )";
+	if [ $? -ne 0 ]; then
+		printf '%s\n' '[ Error ]: al obtener el numero de lineas de la configuracion dada' 1>&2;
+		return 1;
+	fi;
+	if [ ${filas} -lt 1 ]; then
+		printf '%s\n' "[ Error ]: cantidad minima de lineas no alcanzado (${filas} < 1)" 1>&2;
+		return 1;
+	fi;
+
+	# medida patron por linea
+	local cantidad;
+	cantidad="$( printf '%s' "${configuracion}" | sed -n '1p' | command grep -o '.' | wc -l )";
+	if [ $? -ne 0 ]; then
+		printf '%s\n' '[ Error ]: al contar caracteres de la primer linea (medida patron)' 1>&2;
+		return 1;
+	fi;
+
+	# verificando constancia de longitud
+	if [ ${filas} -gt 1 ]; then
+		local indice;
+		local medida;
+		for indice in $( seq 2 ${filas} ); do
+			medida="$( printf '%s' "${configuracion}" | sed -n "${indice}"'p' | command grep -o '.' | wc -l )";
+			if [ $? -ne 0 ]; then
+				printf '%s\n' "[ Error ]: al contar caracteres de la linea ${indice}" 1>&2;
+				return 1;
+			fi;
+			if [ ${medida} -ne ${cantidad} ]; then
+				printf '%s\n' "[ Error ]: la cantidad de catacteres de la linea ${indice} (${medida}) no coincide con la medida patron (${cantidad})" 1>&2;
+				return 1;
+			fi;
+		done;
+	fi;
+
+	local salida;
+	local x;
+	local y;
+	for y in $( seq 1 $(( ${filas} * ( ${l_altura} + 1 ) + ${l_profundidad} + 1 )) ); do
+		salida="$( printf '%s\n%s' "${salida}" "$( repetir $(( ${l_profundidad} + 1 + $( mitad ${l_base} ) + 1 )) "${l_blanco}" )" )";
+		for x in $( seq 1 ${cantidad} ); do
+			salida="$( printf '%s%s' "${salida}" "$( repetir $(( ${l_base} + 1 )) "${l_blanco}" )" )";
+		done;
+	done;
+
+	salida="$( printf '%s' "${salida}" | sed '1d' )";
+
+	local c;
+	local p;
+
+	local i; local j;
+	local n; local m;
+
+	local x0; local x1; local x2;
+	local y0; local y1; local y2;
+
+	for j in $( seq ${filas} -1 1 ); do
+
+		esPar "$(( ${filas} - ${j} + 1 ))";
+		paridad=$?;
+
+		for i in $( seq 0 $(( ${cantidad} - 1 )) ); do
+
+			c="$( leer_xy "${i}" "${j}" "${configuracion}" )";
+
+			if [ "${c}" = "#" ]; then
+
+				# puntos de interes
+				x0=$(( ${i} * ( ${l_base} + 1 ) ));
+				y0=$(( ${j} * ( ${l_altura} + 1 ) + ${l_profundidad} + 1 ));
+				if [ ${paridad} -eq 0 ]; then
+					x0=$(( x0 + $( mitad ${l_base} ) + 1 ));
+				fi;
+
+				x1=$(( ${x0} + ${l_base} + 1 ));
+				y1=$(( ${y0} - 1 - ${l_altura} ));
+
+				x2=$(( ${x1} + ${l_profundidad} ));
+				y2=$(( ${y1} - ${l_profundidad} ));
+
+				# horizontales
+				for x in $( seq $(( ${x0} + 1 )) $(( ${x0} + ${l_base} )) ); do
+					# inferior
+					salida="$( cambio_xy "${x}" "${y0}" "${l_horizontal}" "${salida}" )";
+					# superior
+					salida="$( cambio_xy "${x}" "${y1}" "${l_horizontal}" "${salida}" )";
+					# profundidad
+					salida="$( cambio_xy "$(( ${x} + ${l_profundidad} ))" "${y2}" "${l_horizontal}" "${salida}" )";
+				done;
+
+				# verticales
+				for y in $( seq $(( ${y0} - 1 )) -1 $(( ${y0} - ${l_altura} )) ); do
+					# izquierda
+					salida="$( cambio_xy "${x0}" "${y}" "${l_vertical}" "${salida}" )";
+					# derecha
+					salida="$( cambio_xy "${x1}" "${y}" "${l_vertical}" "${salida}" )";
+				done;
+				for y in $( seq $(( ${y0} - 0 )) -1 $(( ${y0} - ${l_altura} )) ); do
+					# profundidad
+					salida="$( cambio_xy "${x2}" "$(( ${y} - ${l_profundidad} ))" "${l_vertical}" "${salida}" )";
+				done;
+
+				# lados
+				if [ ${l_profundidad} -gt 1 ]; then
+					for n in $( seq 1 $(( ${l_profundidad} - 1 )) ); do
+						# horizontal
+						for x in $( seq $(( ${x0} + 1 )) $(( ${x0} + ${l_base} )) ); do
+							salida="$( cambio_xy "$(( ${x} + ${n} ))" "$(( ${y1} - ${n} ))" "${l_superior}" "${salida}" )";
+						done;
+						# vertical
+						for y in $( seq $(( ${y0} - 0 )) -1 $(( ${y0} - ${l_altura} )) ); do
+							salida="$( cambio_xy "$(( ${x2} - ${n} ))" "$(( ${y} - ${l_profundidad} + ${n} ))" "${l_derecha}" "${salida}" )";
+						done;
+						# diagonales
+						# superior
+						# izquierda
+						salida="$( cambio_xy "$(( ${x0} + ${n} ))" "$(( ${y1} - ${n} ))" "${l_diagonal}" "${salida}" )";
+						# derecha
+						salida="$( cambio_xy "$(( ${x1} + ${n} ))" "$(( ${y1} - ${n} ))" "${l_diagonal}" "${salida}" )";
+						# inferior
+						# derecha
+						salida="$( cambio_xy "$(( ${x1} + ${n} ))" "$(( ${y0} - ${n} + 1 ))" "${l_diagonal}" "${salida}" )";
+					done;
+				fi;
+
+				# cara frontal
+				for y in $( seq $(( ${y0} - ${l_altura} )) $(( ${y0} - 1 )) ); do
+					for x in $( seq $(( ${x0} + 1 )) $(( ${x0} + ${l_base}   )) ); do
+						salida="$( cambio_xy "${x}" "${y}" "${l_frontal}" "${salida}" )";
+					done;
+				done;
+
+				# vertices
+
+				# anterior
+				# superior
+				# izquierda
+				salida="$( cambio_xy "${x0}" "${y1}" "${v_asi}" "${salida}" )";
+				# derecha
+				salida="$( cambio_xy "${x1}" "${y1}" "${v_asd}" "${salida}" )";
+				# interior
+				# izquierda
+				salida="$( cambio_xy "${x0}" "${y0}" "${v_aii}" "${salida}" )";
+				# derecha
+				salida="$( cambio_xy "${x1}" "${y0}" "${v_aid}" "${salida}" )";
+
+				# posterior
+				# superior
+				# izquierda
+				salida="$( cambio_xy "$(( ${x0} + ${l_profundidad} ))" "${y2}" "${v_psi}" "${salida}" )";
+				# derecha
+				salida="$( cambio_xy "$(( ${x1} + ${l_profundidad} ))" "${y2}" "${v_psd}" "${salida}" )";
+				# inferior
+				# derecha
+				salida="$( cambio_xy "${x2}" "$(( ${y0} - ${l_profundidad} + 1 ))" "${v_pid}" "${salida}" )";
+			fi;
+		done;
+	done;
+	printf '%s\n' "${salida}";
+	return 0;
+};
+
+construir "${configuracion}";
