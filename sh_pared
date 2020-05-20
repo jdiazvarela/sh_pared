@@ -40,16 +40,23 @@ configuracion='
 
 ';
 
+configuracion='
+	###
+	##_
+	_##
+'
+
 # armando configuracion aleatorio
 
-p_min=5;
-p_max=90;
+p_min=60;
+p_max=100;
 
 p_min="$( awk -v p="${p_min}" "BEGIN { print int( p * 256 / 100 ) }" )";
 p_max="$( awk -v p="${p_max}" "BEGIN { print int( p * 256 / 100 ) }" )";
 
 p_actual="${p_min}";
-p_salto='1/3';
+p_salto='6/21';
+#p_salto=$(( ( p_max - p_min ) / ${altura} ));
 
 configuracion='';
 for j in $( seq 1 ${altura} ); do
@@ -58,18 +65,20 @@ for j in $( seq 1 ${altura} ); do
 	done;
 	configuracion="$( printf '%s\n	' "${configuracion}" )";
 	p_actual=$(( p_actual + (( p_max - p_actual ) * ${p_salto}) ));
+	#p_actual=$(( p_actual + p_salto ));
 done;
 
+cruzado=0;
 
 # dimensiones
-l_base=3;
+l_base=4;
 l_altura=0;
-l_profundidad=1;
+l_profundidad=0;
 
 # aristas
 l_vertical='|';
 l_horizontal='_';
-l_diagonal='\/';
+l_diagonal='/';
 
 # superficies
 l_derecha=' ';
@@ -77,18 +86,30 @@ l_superior=' ';
 l_frontal=' ';
 
 # vertices
-v_asi='\/';
-v_asd='\/';
+v_asi='/';
+v_asd='/';
 v_aii='|';
 v_aid='|';
+
+#v_asi='I';
+#v_asd='D';
+#v_aii='O';
+#v_aid='P';
 
 v_psi='_';
 v_psd=' ';
 v_pid='|';
 
-[ ${l_profundidad} -lt 2 ] && v_pid='\/';
+#v_psi='A';
+#v_psd='B';
+#v_pid='C';
 
-l_blanco=' ';
+s_invisible='+';
+
+#[ ${l_profundidad} -lt 1 ] && v_pid='/';
+
+#l_blanco=' ';
+l_blanco='·';
 
 
 esPar() {
@@ -116,8 +137,21 @@ repetir() {
 	printf "${texto}"'%.0s' $( seq 1 "${repeticiones}" );
 };
 
+
+# $1: y ... (0 a Y)
+# $2-*: texto
+linea_y() {
+
+	local y="$1";
+	[ ${y} -lt 0 ] && y=0;
+	shift;
+	local texto="$*";
+
+	printf '%s' "${texto}" | sed -n "$(( ${y} + 1 ))"'p';
+};
+
 # $1: x ... (0 a X)
-# $2: y ... (1 a Y)
+# $2: y ... (0 a Y)
 # $3-*: texto
 leer_xy() {
 
@@ -127,15 +161,11 @@ leer_xy() {
 	shift
 	local texto="$*";
 
-	printf '%s' "${texto}" \
-	| \
-	sed -n "${y}"'s/^.\{'"${x}"'\}\(.\).*$/\1/p';
-
-	#printf '%s\n' "${y}"'s/^.\{'"${x}"'\}\(.\).*$/\1/p' 1>&2;
+	printf '%s' "$( printf '%s' "${texto}" | sed -n "$(( ${y} + 1 ))"'s/^.\{'"${x}"'\}\(.\).*$/\1/p' )";
 };
 
 # $1: x ... (0 a X)
-# $2: y ... (1 a Y)
+# $2: y ... (0 a Y)
 # $3: reemplazo
 # $4-*: texto
 cambio_xy() {
@@ -148,9 +178,93 @@ cambio_xy() {
 	shift;
 	local texto="$*";
 
+	local cantidad="$( printf '%s' "${reemplazo}" | command grep -o '.' | wc -l )";
+	local linea="$( printf '%s' "${reemplazo}" | sed -E 's/([/\])/\\\1/g' )";
+
 	printf '%s' "${texto}" \
 	| \
-	sed "${y}"'s/^\(.\{'"${x}"'\}\)\(.\)\(.*\)$/\1'"${reemplazo}"'\3/';
+	sed "$(( ${y} + 1 ))"'s/^\(.\{'"${x}"'\}\)\(.\{'"${cantidad}"'\}\)\(.*\)$/\1'"${linea}"'\3/';
+};
+
+# $1: x ... (0 a X)
+# $2: y ... (0 a Y)
+# $3: sprite
+# $4-*: lienzo
+pegar_xy() {
+
+	local x="$1";
+	shift;
+	local y="$1";
+	shift;
+	local sprite="$1";
+	shift;
+	local texto="$*";
+
+	local l;
+	for l in $( seq 0 $(( $( printf '%s\n' "${sprite}" | wc -l ) - 1 )) ); do
+		texto="$( cambio_xy ${x} $(( ${y} + ${l} )) "$( linea_y ${l} "${sprite}" )" "${texto}" )";
+	done;
+
+	printf '%s' "${texto}";
+};
+
+# $1: x ... (0 a X)
+# $2: y ... (0 a Y)
+# $3: invisible
+# $4: sprite
+# $5-*: lienzo
+dibujar_xy() {
+
+	local x="$1";
+	shift;
+	local y="$1";
+	shift;
+	local invisible="$1";
+	shift;
+	local sprite="$1";
+	shift;
+	local texto="$*";
+
+	local l;
+	local linea;
+
+	local porcion;
+	local medida;
+
+	local i;
+
+	for l in $( seq 0 $(( $( printf '%s\n' "${sprite}" | wc -l ) - 1 )) ); do
+
+		linea="$( linea_y ${l} "${sprite}" )";
+		i=0;
+
+		while true; do
+			porcion="$( printf '%s' "${linea}" | sed 's/'"${invisible}"'.*$//' )";
+
+			# a trabajar??
+			if [ -n "${porcion}" ]; then
+				#printf '%s\n' "${porcion}";
+
+				texto="$( cambio_xy $(( ${x} + ${i} )) $(( ${y} + ${l} )) "${porcion}" "${texto}" )";
+			fi;
+
+			i=$(( 1 + ${i} + $( printf '%s' "${porcion}" | command grep -o '.' | wc -l ) ));
+
+			linea="$( \
+				printf '%s' "${linea}" \
+				| \
+				sed -n 's/^'"$( \
+					printf '%s' "${porcion}${invisible}" \
+					| \
+					sed 's/\//\\\//g' \
+				)"'//p' \
+			)";
+
+			[ -z "${linea}" ] && break;
+		done;
+	done;
+
+	printf '%s' "${texto}";
 };
 
 # $*: configuracion
@@ -214,129 +328,123 @@ construir() {
 		done;
 	fi;
 
+
+	# -- SPRITE
+
+	local sprite;
+	for y in $( seq 1 $(( ${l_altura} + 1 + ${l_profundidad} + 1 + 1 )) ); do
+		sprite="$( printf '%s\n%s' "${sprite}" "$( repetir $(( ${l_base} + 1 + ${l_profundidad} + 1 + 1 )) "${s_invisible}" )" )";
+	done;
+	sprite="$( printf '%s' "${sprite}" | sed '1d' )";
+
+	# cara frontal
+	for y in $( seq 1 ${l_altura} ); do
+		for x in $( seq 1 ${l_base} ); do
+			sprite="$( cambio_xy "${x}" "$(( ${l_profundidad} + ${y} + 1 ))" "${l_frontal}" "${sprite}" )";
+		done;
+	done;
+
+	# vertices
+	# anterior
+	# superior
+	# izquierda
+	sprite="$( cambio_xy "0" "$(( ${l_profundidad} + 1 ))" "${v_asi}" "${sprite}" )";
+	# derecha
+	sprite="$( cambio_xy "$(( 1 + ${l_base} ))" "$(( ${l_profundidad} + 1 ))" "${v_asd}" "${sprite}" )";
+	# interior
+	# izquierda
+	sprite="$( cambio_xy "0" "$(( ${l_altura} + 1 + ${l_profundidad} + 1 ))" "${v_aii}" "${sprite}" )";
+	# derecha
+	sprite="$( cambio_xy "$(( 1 + ${l_base} ))" "$(( ${l_altura} + 1 + ${l_profundidad} + 1 ))" "${v_aid}" "${sprite}" )";
+
+	# posterior
+	# superior
+	# izquierda
+	sprite="$( cambio_xy "$(( 1 + ${l_profundidad} ))" "0" "${v_psi}" "${sprite}" )";
+	# derecha
+	sprite="$( cambio_xy "$(( ${l_base} + 1 + ${l_profundidad} + 1 ))" "0" "${v_psd}" "${sprite}" )";
+	# inferior
+	# derecha
+	sprite="$( cambio_xy "$(( ${l_base} + 1 + ${l_profundidad} + 1 ))" "$(( ${l_altura} + 1 ))" "${v_pid}" "${sprite}" )";
+
+	# horizontales
+	for x in $( seq 1 ${l_base} ); do
+		# superior
+		sprite="$( cambio_xy "${x}" "$(( ${l_profundidad} + 1 ))" "${l_horizontal}" "${sprite}" )";
+		# inferior
+		sprite="$( cambio_xy "${x}" "$(( 1 + ${l_profundidad} + ${l_altura} + 1 ))" "${l_horizontal}" "${sprite}" )";
+		# profundidad
+		sprite="$( cambio_xy "$(( ${x} + 1 + ${l_profundidad} ))" "0" "${l_horizontal}" "${sprite}" )";
+	done;
+
+	# verticales
+	for y in $( seq 1 ${l_altura} ); do
+		# izquierda
+		sprite="$( cambio_xy "0" "$(( ${y} + 1 + ${l_profundidad} ))" "${l_vertical}" "${sprite}" )";
+		# derecha
+		sprite="$( cambio_xy "$(( 1 + ${l_base} ))" "$(( ${y} + 1 + ${l_profundidad} ))" "${l_vertical}" "${sprite}" )";
+		# profundidad
+		sprite="$( cambio_xy "$(( 1 + ${l_base} + 1 + ${l_profundidad} ))" "${y}" "${l_vertical}" "${sprite}" )";
+	done;
+
+	# lados
+	local n;
+	for n in $( seq 1 ${l_profundidad} ); do
+		# horizontal
+		for x in $( seq 1 ${l_base} ); do
+			sprite="$( cambio_xy "$(( ${n} + ${x} ))" "$(( ${l_profundidad} + 1 - ${n} ))" "${l_superior}" "${sprite}" )";
+		done;
+		# vertical
+		for y in $( seq 1 ${l_altura} ); do
+			sprite="$( cambio_xy "$(( ${n} + ${l_base} + 1 ))" "$(( ${l_altura} + ${l_profundidad} + 1 - ${n} - ${y} + 1 ))" "${l_derecha}" "${sprite}" )";
+		done;
+		# diagonales
+		# superior
+		# izquierda
+		sprite="$( cambio_xy "${n}" "$(( ${l_profundidad} + 1 - ${n} ))" "${l_diagonal}" "${sprite}" )";
+		# derecha
+		sprite="$( cambio_xy "$(( ${n} + ${l_base} + 1 ))" "$(( ${l_profundidad} + 1 - ${n} ))" "${l_diagonal}" "${sprite}" )";
+		# inferior
+		# derecha
+		sprite="$( cambio_xy "$(( ${n} + ${l_base} + 1 ))" "$(( 1 + ${l_altura} + ${l_profundidad} + 1 - ${n} ))" "${l_diagonal}" "${sprite}" )";
+	done;
+
+
+	# -- LIENZO
+
 	local salida;
 	local x;
 	local y;
-	for y in $( seq 1 $(( ${filas} * ( ${l_altura} + 1 ) + ${l_profundidad} + 1 )) ); do
-		salida="$( printf '%s\n%s' "${salida}" "$( repetir $(( ${l_profundidad} + 1 + $( mitad ${l_base} ) + 1 )) "${l_blanco}" )" )";
+	n="$(( $( [ ${cruzado} -ne 0 ]; printf '%s' "$?" ) * ( $( mitad "${l_base}" ) + 1 ) ))";
+	local b;
+	b="$( repetir "$(( 1 + ${l_profundidad} + 1 + ${n} ))" "${l_blanco}" )";
+	for y in $( seq 1 $(( ${filas} * ( ${l_altura} + 1 ) + 1 + ${l_profundidad} + 1 )) ); do
+		salida="$( printf '%s\n%s' "${salida}" "${b}" )";
 		for x in $( seq 1 ${cantidad} ); do
 			salida="$( printf '%s%s' "${salida}" "$( repetir $(( ${l_base} + 1 )) "${l_blanco}" )" )";
 		done;
 	done;
-
 	salida="$( printf '%s' "${salida}" | sed '1d' )";
 
-	local c;
-	local p;
-
-	local i; local j;
-	local n; local m;
-
-	local x0; local x1; local x2;
-	local y0; local y1; local y2;
-
-	for j in $( seq ${filas} -1 1 ); do
-
-		esPar "$(( ${filas} - ${j} + 1 ))";
-		paridad=$?;
-
+	local i;
+	local j;
+	y=$(( ( ${filas} - 1 ) * ( ${l_altura} + 1 ) ));
+	for j in $( seq 0 $(( ${filas} - 1 )) ); do
+		x=0;
+		esPar "${y}" && x=$(( ${x} + ${n} ));
 		for i in $( seq 0 $(( ${cantidad} - 1 )) ); do
-
-			c="$( leer_xy "${i}" "${j}" "${configuracion}" )";
-
-			if [ "${c}" = "#" ]; then
-
-				# puntos de interes
-				x0=$(( ${i} * ( ${l_base} + 1 ) ));
-				y0=$(( ${j} * ( ${l_altura} + 1 ) + ${l_profundidad} + 1 ));
-				if [ ${paridad} -eq 0 ]; then
-					x0=$(( x0 + $( mitad ${l_base} ) + 1 ));
-				fi;
-
-				x1=$(( ${x0} + ${l_base} + 1 ));
-				y1=$(( ${y0} - 1 - ${l_altura} ));
-
-				x2=$(( ${x1} + ${l_profundidad} ));
-				y2=$(( ${y1} - ${l_profundidad} ));
-
-				# horizontales
-				for x in $( seq $(( ${x0} + 1 )) $(( ${x0} + ${l_base} )) ); do
-					# inferior
-					salida="$( cambio_xy "${x}" "${y0}" "${l_horizontal}" "${salida}" )";
-					# superior
-					salida="$( cambio_xy "${x}" "${y1}" "${l_horizontal}" "${salida}" )";
-					# profundidad
-					salida="$( cambio_xy "$(( ${x} + ${l_profundidad} ))" "${y2}" "${l_horizontal}" "${salida}" )";
-				done;
-
-				# verticales
-				for y in $( seq $(( ${y0} - 1 )) -1 $(( ${y0} - ${l_altura} )) ); do
-					# izquierda
-					salida="$( cambio_xy "${x0}" "${y}" "${l_vertical}" "${salida}" )";
-					# derecha
-					salida="$( cambio_xy "${x1}" "${y}" "${l_vertical}" "${salida}" )";
-				done;
-				for y in $( seq $(( ${y0} - 0 )) -1 $(( ${y0} - ${l_altura} )) ); do
-					# profundidad
-					salida="$( cambio_xy "${x2}" "$(( ${y} - ${l_profundidad} ))" "${l_vertical}" "${salida}" )";
-				done;
-
-				# lados
-				if [ ${l_profundidad} -gt 1 ]; then
-					for n in $( seq 1 $(( ${l_profundidad} - 1 )) ); do
-						# horizontal
-						for x in $( seq $(( ${x0} + 1 )) $(( ${x0} + ${l_base} )) ); do
-							salida="$( cambio_xy "$(( ${x} + ${n} ))" "$(( ${y1} - ${n} ))" "${l_superior}" "${salida}" )";
-						done;
-						# vertical
-						for y in $( seq $(( ${y0} - 0 )) -1 $(( ${y0} - ${l_altura} )) ); do
-							salida="$( cambio_xy "$(( ${x2} - ${n} ))" "$(( ${y} - ${l_profundidad} + ${n} ))" "${l_derecha}" "${salida}" )";
-						done;
-						# diagonales
-						# superior
-						# izquierda
-						salida="$( cambio_xy "$(( ${x0} + ${n} ))" "$(( ${y1} - ${n} ))" "${l_diagonal}" "${salida}" )";
-						# derecha
-						salida="$( cambio_xy "$(( ${x1} + ${n} ))" "$(( ${y1} - ${n} ))" "${l_diagonal}" "${salida}" )";
-						# inferior
-						# derecha
-						salida="$( cambio_xy "$(( ${x1} + ${n} ))" "$(( ${y0} - ${n} + 1 ))" "${l_diagonal}" "${salida}" )";
-					done;
-				fi;
-
-				# cara frontal
-				for y in $( seq $(( ${y0} - ${l_altura} )) $(( ${y0} - 1 )) ); do
-					for x in $( seq $(( ${x0} + 1 )) $(( ${x0} + ${l_base}   )) ); do
-						salida="$( cambio_xy "${x}" "${y}" "${l_frontal}" "${salida}" )";
-					done;
-				done;
-
-				# vertices
-
-				# anterior
-				# superior
-				# izquierda
-				salida="$( cambio_xy "${x0}" "${y1}" "${v_asi}" "${salida}" )";
-				# derecha
-				salida="$( cambio_xy "${x1}" "${y1}" "${v_asd}" "${salida}" )";
-				# interior
-				# izquierda
-				salida="$( cambio_xy "${x0}" "${y0}" "${v_aii}" "${salida}" )";
-				# derecha
-				salida="$( cambio_xy "${x1}" "${y0}" "${v_aid}" "${salida}" )";
-
-				# posterior
-				# superior
-				# izquierda
-				salida="$( cambio_xy "$(( ${x0} + ${l_profundidad} ))" "${y2}" "${v_psi}" "${salida}" )";
-				# derecha
-				salida="$( cambio_xy "$(( ${x1} + ${l_profundidad} ))" "${y2}" "${v_psd}" "${salida}" )";
-				# inferior
-				# derecha
-				salida="$( cambio_xy "${x2}" "$(( ${y0} - ${l_profundidad} + 1 ))" "${v_pid}" "${salida}" )";
-			fi;
+			[ "$( leer_xy "${i}" "$(( ${filas} - 1 - ${j} ))" "${configuracion}" )" = "#" ] \
+			&& \
+			salida="$( dibujar_xy ${x} ${y} "${s_invisible}" "${sprite}" "${salida}" )";
+			x="$(( ${x} + ( ${l_base} + 1 ) ))";
 		done;
+		y="$(( ${y} - ${l_altura} - 1 ))";
 	done;
+
+	printf '%s\n' "${configuracion}";
+	echo ==================
+	printf '%s\n' "${sprite}";
+	echo ==================
 	printf '%s\n' "${salida}";
 	return 0;
 };
