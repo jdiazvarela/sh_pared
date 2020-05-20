@@ -108,8 +108,8 @@ s_invisible='+';
 
 #[ ${l_profundidad} -lt 1 ] && v_pid='/';
 
-#l_blanco=' ';
-l_blanco='·';
+l_blanco=' ';
+#l_blanco='·';
 
 
 esPar() {
@@ -441,10 +441,10 @@ construir() {
 		y="$(( ${y} - ${l_altura} - 1 ))";
 	done;
 
-	printf '%s\n' "${configuracion}";
-	echo ==================
-	printf '%s\n' "${sprite}";
-	echo ==================
+	#printf '%s\n' "${configuracion}";
+	#echo ==================
+	#printf '%s\n' "${sprite}";
+	#echo ==================
 	printf '%s\n' "${salida}";
 	return 0;
 };
