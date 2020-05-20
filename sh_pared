@@ -71,7 +71,7 @@ done;
 cruzado=0;
 
 # dimensiones
-l_base=4;
+l_base=3;
 l_altura=0;
 l_profundidad=0;
 
@@ -431,7 +431,7 @@ construir() {
 	y=$(( ( ${filas} - 1 ) * ( ${l_altura} + 1 ) ));
 	for j in $( seq 0 $(( ${filas} - 1 )) ); do
 		x=0;
-		esPar "${y}" && x=$(( ${x} + ${n} ));
+		esPar "${j}" && x=$(( ${x} + ${n} ));
 		for i in $( seq 0 $(( ${cantidad} - 1 )) ); do
 			[ "$( leer_xy "${i}" "$(( ${filas} - 1 - ${j} ))" "${configuracion}" )" = "#" ] \
 			&& \
