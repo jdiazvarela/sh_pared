@@ -1,0 +1,396 @@
+#!/bin/sh
+
+# armando configuracion aleatorio
+
+# $1: base
+# $2: altura
+configuracion_generar() {
+
+	if [ $# -lt 2 ]; then
+		printf '%s\n' '[ Error ]: es necesario indicar dimensiones, <base> <altura>' 1>&2;
+		exit 1;
+	fi;
+
+	local base="$1";
+	shift;
+	local altura="$*";
+	local error=1;
+
+	printf '%s' "${base}" | grep -E '^[0-9]+$' 1>/dev/null 2>/dev/null;
+	if [ $? -ne 0 ]; then
+		printf '%s\n' "[ Error ]: formato no valido para la base '${base}'" 1>&2;
+		error=0;
+	fi;
+
+	printf '%s' "${altura}" | grep -E '^[0-9]+$' 1>/dev/null 2>/dev/null;
+	if [ $? -ne 0 ]; then
+		printf '%s\n' "[ Error ]: formato no valido para la altura '${altura}'" 1>&2;
+		error=0;
+	elif [ ${altura} -gt 255 ]; then
+		printf '%s\n' "[ Error ]: altura fuera de limites '${altura}'" 1>&2;
+		error=0;
+	fi;
+
+	[ ${error} -eq 0 ] && exit 1;
+
+	printf '%s\n' "generando configuracion..." 1>&2;
+	local configuracion='';
+	for j in $( seq 1 ${altura} ); do
+		for i in $( seq 1 ${base} ); do
+			configuracion="$( printf '%s%s' "${configuracion}" "$( [ "$( od -An -N1 -tu1 /dev/urandom )" -gt 124 ] && printf '-' || printf '+' )" )";
+		done;
+		configuracion="$( printf '%s\n	' "${configuracion}" )";
+	done;
+
+	printf '%s' "${configuracion}";
+};
+
+# $1: y ... (0 a Y)
+# $2-*: texto
+linea_y() {
+
+	local y="$1";
+	[ ${y} -lt 0 ] && y=0;
+	shift;
+	local texto="$*";
+
+	printf '%s' "${texto}" | sed -n "$(( ${y} + 1 ))"'p';
+};
+
+# $1: x ... (0 a X)
+# $2: y ... (0 a Y)
+# $3-*: texto
+leer_xy() {
+
+	local x="$1";
+	shift
+	local y="$1";
+	shift
+	local texto="$*";
+
+	printf '%s' "$( printf '%s' "${texto}" | sed -n "$(( ${y} + 1 ))"'s/^.\{'"${x}"'\}\(.\).*$/\1/p' )";
+};
+
+# $1: x ... (0 a X)
+# $2: y ... (0 a Y)
+# $3: reemplazo
+# $4-*: texto
+cambio_xy() {
+
+	local x="$1";
+	shift;
+	local y="$1";
+	shift;
+	local reemplazo="$1";
+	shift;
+	local texto="$*";
+
+	local cantidad="$( printf '%s' "${reemplazo}" | command grep -o '.' | wc -l )";
+	local linea="$( printf '%s' "${reemplazo}" | sed -E 's/([/\])/\\\1/g' )";
+
+	printf '%s' "${texto}" \
+	| \
+	sed "$(( ${y} + 1 ))"'s/^\(.\{'"${x}"'\}\)\(.\{'"${cantidad}"'\}\)\(.*\)$/\1'"${linea}"'\3/';
+};
+
+# $1: x ... (0 a X)
+# $2: y ... (0 a Y)
+# $3: sprite
+# $4-*: lienzo
+pegar_xy() {
+
+	local x="$1";
+	shift;
+	local y="$1";
+	shift;
+	local sprite="$1";
+	shift;
+	local texto="$*";
+
+	local l;
+	for l in $( seq 0 $(( $( printf '%s\n' "${sprite}" | wc -l ) - 1 )) ); do
+		texto="$( cambio_xy ${x} $(( ${y} + ${l} )) "$( linea_y ${l} "${sprite}" )" "${texto}" )";
+	done;
+
+	printf '%s' "${texto}";
+};
+
+# $1: x ... (0 a X)
+# $2: y ... (0 a Y)
+# $3: invisible
+# $4: sprite
+# $5-*: lienzo
+dibujar_xy() {
+
+	local x="$1";
+	shift;
+	local y="$1";
+	shift;
+	local invisible="$1";
+	shift;
+	local sprite="$1";
+	shift;
+	local texto="$*";
+
+	local l;
+	local linea;
+
+	local porcion;
+	local medida;
+
+	local i;
+
+	for l in $( seq 0 $(( $( printf '%s\n' "${sprite}" | wc -l ) - 1 )) ); do
+
+		linea="$( linea_y ${l} "${sprite}" )";
+		i=0;
+
+		while true; do
+			porcion="$( printf '%s' "${linea}" | sed 's/'"${invisible}"'.*$//' )";
+
+			# a trabajar??
+			if [ -n "${porcion}" ]; then
+				#printf '%s\n' "${porcion}";
+
+				texto="$( cambio_xy $(( ${x} + ${i} )) $(( ${y} + ${l} )) "${porcion}" "${texto}" )";
+			fi;
+
+			i=$(( 1 + ${i} + $( printf '%s' "${porcion}" | command grep -o '.' | wc -l ) ));
+
+			linea="$( \
+				printf '%s' "${linea}" \
+				| \
+				sed -n 's/^'"$( \
+					printf '%s' "${porcion}${invisible}" \
+					| \
+					sed 's/\//\\\//g' \
+				)"'//p' \
+			)";
+
+			[ -z "${linea}" ] && break;
+		done;
+	done;
+
+	printf '%s' "${texto}";
+};
+
+# $*: configuracion
+gameOfLife() {
+
+	local configuracion;
+
+	# sin tabs iniciales
+	configuracion="$( printf '%s' "$*" | sed 's/^[	]*//' )";
+
+	# borrando primeras lineas en blanco
+	while [ -n "${configuracion}" ] && [ -z "$( printf '%s' "${configuracion}" | head -n1 )" ]; do
+		configuracion="$( printf '%s' "${configuracion}" | sed '1d' )";
+	done;
+
+	# borrando ultimas lineas en blanco
+	while [ -n "${configuracion}" ] && [ -z "$( printf '%s' "${configuracion}" | tail -n1 )" ]; do
+		configuracion="$( printf '%s' "${configuracion}" | sed '$d' )";
+	done;
+
+	# verificando caracteres
+	if [ -n "$( printf '%s' "${configuracion}" | sed 's/[#@+·_ -]//g' )" ]; then
+		printf '%s\n' '[ Error ]: caracteres no permitidos' 1>&2;
+		return 1;
+	fi;
+
+	# contando filas
+	local filas;
+	filas="$( printf '%s\n' "${configuracion}" | wc -l )";
+	if [ $? -ne 0 ]; then
+		printf '%s\n' '[ Error ]: al obtener el numero de lineas de la configuracion dada' 1>&2;
+		return 1;
+	fi;
+	if [ ${filas} -lt 1 ]; then
+		printf '%s\n' "[ Error ]: cantidad minima de lineas no alcanzado (${filas} < 1)" 1>&2;
+		return 1;
+	fi;
+
+	# medida patron por linea
+	local cantidad;
+	cantidad="$( printf '%s' "${configuracion}" | sed -n '1p' | command grep -o '.' | wc -l )";
+	if [ $? -ne 0 ]; then
+		printf '%s\n' '[ Error ]: al contar caracteres de la primer linea (medida patron)' 1>&2;
+		return 1;
+	fi;
+
+	# verificando constancia de longitud
+	if [ ${filas} -gt 1 ]; then
+		local indice;
+		local medida;
+		for indice in $( seq 2 ${filas} ); do
+			medida="$( printf '%s' "${configuracion}" | sed -n "${indice}"'p' | command grep -o '.' | wc -l )";
+			if [ $? -ne 0 ]; then
+				printf '%s\n' "[ Error ]: al contar caracteres de la linea ${indice}" 1>&2;
+				return 1;
+			fi;
+			if [ ${medida} -ne ${cantidad} ]; then
+				printf '%s\n' "[ Error ]: la cantidad de catacteres de la linea ${indice} (${medida}) no coincide con la medida patron (${cantidad})" 1>&2;
+				return 1;
+			fi;
+		done;
+	fi;
+
+	local fondo="${configuracion}";
+
+	local tt;
+
+	# monton de indices
+	# indice de celda - indice de vecino - unicacion de vecino
+	local i; local iv; local ii;
+	local j; local jv; local jj;
+
+	# vecinos.................................
+	local v00=' '; local v10=' '; local v20=' ';
+	local v01=' '; local v11=' '; local v21=' ';
+	local v02=' '; local v12=' '; local v22=' ';
+
+	# vecinos vivos
+	local vvivos;
+
+	# origen / ojo / cursor
+	local oi=0;
+	local oj=0;
+
+	# se leen los vecinos del ultimo lugar (para ajustar a la rotacion del while general)
+	for jv in $( seq 1 2 ); do
+		jj="$(( ( ${oi} + ${jv} - 1 ) % ${filas} ))"; [ ${jj} -lt 0 ] && jj="$(( ${jj} + ${filas} ))";
+
+		for iv in $( seq 1 2 ); do
+			ii="$(( ( ${oj} + ${iv} - 1 ) % ( ${cantidad} ) ))"; [ ${ii} -lt 0 ] && ii="$(( ${ii} + ${cantidad} ))";
+
+			eval v${iv}${jv}=\""$( leer_xy "${ii}" "${jj}" "${configuracion}" )"\";
+		done;
+	done;
+
+	# while general
+	while true; do
+
+		# se trabaja cada file... se recorren las columnas
+		for j in $( seq 0 $(( ${filas} - 1 )) ); do
+
+			oj=$(( ( ${oj} + 1 ) % ${filas} )); [ ${oj} -lt 0 ] && oj="$(( ${oj} + ${filas} ))";
+
+			# se corre la lectura de vecinos "hacia abajo"
+			for jv in $( seq 0 1 ); do for iv in $( seq 0 2 ); do
+				eval "v${iv}${jv}=\"\$v${iv}$(( ${jv} + 1 ))\"";
+			done; done;
+
+			# se lee la nueva fila de vecinos
+			jj="$(( ( ${oj} + 1 ) % ${filas} ))"; [ ${jj} -lt 0 ] && jj="$(( ${jj} + ${filas} ))";
+
+			for iv in $( seq 0 2 ); do
+				ii="$(( ( ${oi} + ${iv} - 1 ) % ${cantidad} ))"; [ ${ii} -lt 0 ] && ii="$(( ${ii} + ${cantidad} ))";
+
+				eval v${iv}2=\""$( leer_xy "${ii}" "${jj}" "${configuracion}" )"\";
+			done;
+
+			vvivos=0;
+				for jv in $( seq 0 2 ); do
+					for iv in $( seq 0 2 ); do
+						# si no es centro (solo vecinos)
+						if ! ( [ ${jv} -eq 1 ] && [ ${iv} -eq 1 ] ); then
+							tt="$( eval "printf '%s' \"\$v${iv}${jv}\"" )";
+							# se obtiene...
+							if [ "${tt}" = "#" ] || [ "${tt}" = "@" ] || [ "${tt}" = "+" ]; then
+								vvivos=$(( ${vvivos} + 1 ));
+							fi;
+						fi;
+					done;
+				done;
+
+			# a trabajar la columna... a recorrer celdas
+			for i in $( seq 0 $(( ${cantidad} - 1 )) ); do
+
+				oi=$(( ( ${oi} + 1 ) % ${cantidad} )); [ ${oi} -lt 0 ] && oi="$(( ${oi} + ${cantidad} ))";
+
+				# se corre la lectura de vecinos "hacia la derecha"
+				for jv in $( seq 0 2 ); do for iv in $( seq 0 1 ); do
+					eval "v${iv}${jv}=\"\$v$(( ${iv} + 1 ))${jv}\"";
+				done; done;
+
+				# se lee la nueva columna de vecinos
+				ii="$(( ( ${oi} + 1 ) % ${cantidad} ))";
+				[ ${ii} -lt 0 ] && ii="$(( ${ii} + ${cantidad} ))";
+
+				for jv in $( seq 0 2 ); do
+					jj="$(( ( ${oj} + ${jv} - 1 ) % ${filas} ))";
+					[ ${jj} -lt 0 ] && jj="$(( ${jj} + ${filas} ))";
+
+					eval v2${jv}=\""$( leer_xy "${ii}" "${jj}" "${configuracion}" )"\";
+				done;
+
+				# a "contar" vecinos...
+				vvivos=0;
+				for jv in $( seq 0 2 ); do
+					for iv in $( seq 0 2 ); do
+						if ! ( [ ${jv} -eq 1 ] && [ ${iv} -eq 1 ] ); then
+							tt="$( eval "printf '%s' \"\$v${iv}${jv}\"" )";
+							if [ "${tt}" = "#" ] || [ "${tt}" = "@" ] || [ "${tt}" = "+" ]; then
+								vvivos=$(( ${vvivos} + 1 ));
+							fi;
+						fi;
+					done;
+				done;
+				local vive=0;
+
+				case ${v11} in
+					'#'|'@'|'+')
+						case ${vvivos} in
+							2|3) fondo="$( cambio_xy "${oi}" "${oj}" "#" "${fondo}" )"; vive=1; ;;
+							*)   fondo="$( cambio_xy "${oi}" "${oj}" "·" "${fondo}" )"; ;;
+						esac;
+					;;
+					*)
+						case ${vvivos} in
+							3) fondo="$( cambio_xy "${oi}" "${oj}" "+" "${fondo}" )"; vive=1; ;;
+							*) fondo="$( cambio_xy "${oi}" "${oj}" " " "${fondo}" )"; ;;
+						esac;
+					;;
+				esac;
+				clear; echo === ${oi},${oj} == ${vive}; printf '%s\n' "${fondo}";
+			done;
+		done;
+		configuracion="${fondo}";
+	done;
+	return 0;
+};
+
+
+# ejemplos de configuracion
+
+# 10 x 4
+configuracion='
+	####___###
+	##_____###
+	___###____
+	#_#_#_#_#_
+';
+
+# 16 x 12
+configuracion='
+	####___###___#_#
+	##_____###__#___
+	___###____##_#__
+	#_#_#_#_#_#_#_##
+	####___###___#_#
+	##_____###__#___
+	___###____##_#__
+	#_#_#_#_#_#_#_##
+	####___###___#_#
+	##_____###__#___
+	___###____##_#__
+	#_#_#_#_#_#_#_##
+'
+
+# configuracion automatica
+configuracion="$( configuracion_generar $@ )" || exit 1;
+
+gameOfLife "${configuracion}"
+
+
+# -- FIN
